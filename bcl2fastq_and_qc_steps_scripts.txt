@@ -1,0 +1,41 @@
+# bcl2fastq	
+
+#!/bin/bash
+#SBATCH --job-name=bcl2fastq
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -c 48
+#SBATCH --partition=general
+#SBATCH --qos=general
+#SBATCH --mem=32G
+#SBATCH --mail-type=BEGIN,END
+#SBATCH --mail-user=awilderman@uchc.edu
+module load bcl2fastq/2.20
+
+cd /home/FCAM/awilderman/DATA/RNA-seq/HoxA_LCR_KO_mouse/210112_NB551647_0056_AHGTGYBGXG
+bcl2fastq -r 9 -w 9 -p 30 --sample-sheet Sample_Sheet_Used_Cotney.csv --no-lane-splitting # produces a single fastq rather than 4 fastqs you have to merge
+bcl2fastq -r 9 -w 9 -p 30 --sample-sheet Sample_Sheet_Used_Hinson.csv --no-lane-splitting
+
+## fastqc and multiqc on the fastqs from this run
+
+#!/bin/bash
+#SBATCH --job-name=fastqc_combined
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -c 8
+#SBATCH --partition=general
+#SBATCH --mail-type=BEGIN,END
+#SBATCH --mail-user=user@uchc.edu
+#SBATCH -o fastqc_combined_%j.out
+#SBATCH -e fastqc_combined_%j.err
+source /home/FCAM/jcotney/.bashrc_miniconda3 # conda environment makes it more reliable to run programs on the cluster where sometimes a library isn't found on specific nodes
+conda activate cutadapt
+module load fastqc/0.11.7
+module load MultiQC/1.9
+
+cd ~/DATA/RNA-seq/HoxA_LCR_KO_mouse/210112_NB551647_0056_AHGTGYBGXG
+
+fastqc -o ~/DATA/RNA-seq/HoxA_LCR_KO_mouse/210112_NB551647_0056_AHGTGYBGXG /home/FCAM/awilderman/DATA/RNA-seq/HoxA_LCR_KO_mouse/210112_NB551647_0056_AHGTGYBGXG/Data/Intensities/BaseCalls/*.fastq*
+multiqc -f -i RNA-seq_merged_file_report -n RNA-seq_merged_multiqc .
+# fastqc is the QC program that looks at all aspects of the samples, multiqc is a program that puts all the individual files from fastqc (and other QC programs) together in one report
+conda deactivate

@@ -1,0 +1,208 @@
+# make sure you have this in R/3.4.1
+source("https://bioconductor.org/biocLite.R")
+biocLite("GOSemSim")
+
+# # In terminal:
+# prepare the lists to have Entrezid and log2fold change
+cd /home/CAM/awilderman/ANALYSIS/RNA-seq/2017-10-24_human_cf/combined_data/tophat_pipeline/R_data/2018-03-05_R_analysis/clusterProfiler
+for i in CS13vsCS17 CS17vsCS13 CS13vsCS14 CS14vsCS15 CS15vsCS17 CS13vsCS15 CS14vsCS17 CS15vsCS13 CS17vsCS14 CS14vsCS13 CS15vsCS14 CS17vsCS15
+do
+	echo -e "cat filtered_"$i"_DE | awk -F, '{print \$10\",\"\$4}' > filtered_"$i"_geneList.csv" >> make_geneLists.sh
+done 
+chmod +x make_geneLists.sh
+./make_geneLists.sh
+
+# write the R scripts for all the combinations
+for i in CS13vsCS17 CS17vsCS13 CS13vsCS14 CS14vsCS15 CS15vsCS17 CS13vsCS15 CS14vsCS17 CS15vsCS13 CS17vsCS14 CS14vsCS13 CS15vsCS14 CS17vsCS15
+do
+	echo -e "# # in R:
+	# get the data into format
+	setwd(\"/home/CAM/awilderman/ANALYSIS/RNA-seq/2017-10-24_human_cf/combined_data/tophat_pipeline/R_data/2018-03-05_R_analysis/clusterProfiler\")
+	"$i"_geneList <- read.table(\"filtered_"$i"_geneList.csv\", sep=\",\", dec=\".\", header=TRUE)
+	head ("$i"_geneList)
+	"$i".df <- as.data.frame("$i"_geneList)
+	head("$i".df)
+	sapply("$i".df, mode)
+	"$i"_matrix_dat <- as.matrix("$i".df)
+	head("$i"_matrix_dat)
+	rownames("$i"_matrix_dat)<- as.character("$i".df\$entrezid)
+	head("$i"_matrix_dat[,-1])
+	head(sapply("$i"_matrix_dat[,-1], mode))
+	"$i" <- "$i"_matrix_dat[,-1]
+
+	# set up separate lists by absolute log2fold difference
+	"$i"_list <- names("$i")[abs("$i") > 1.5]
+	head("$i"_list)
+	write.csv("$i"_list, file=\""$i"_list_abs.csv\")
+
+	# Find enriched disease ontology terms for each of the absolute fold difference lists
+	library(clusterProfiler)
+	library(DOSE)
+	library(GeoSemSim)
+	"$i"_1.5_DO <- enrichDO(gene          = "$i"_list,
+                             ont           = \"DO\",
+                             pvalueCutoff  = 0.05,
+                             pAdjustMethod = \"BH\",
+                             universe      = names("$i"),
+                             minGSSize     = 5,
+                             maxGSSize     = 1000,
+                             qvalueCutoff  = 0.05,
+                             readable      = FALSE)
+	"$i"_1.5_DO <- setReadable("$i"_1.5_DO, 'org.Hs.eg.db')
+
+	head("$i"_1.5_DO)
+
+	# find enriched disease-associated gene terms from absolute fold difference lists
+
+	"$i"_1.5_dgn <- enrichDGN("$i"_list)
+	head("$i"_1.5_dgn)
+
+	# make a dotplot of enriched DO and disease-associated gene terms
+	pdf(\""$i"_1.5_DO_dotplot.pdf\")
+	dotplot("$i"_1.5_DO)
+	dev.off()
+	pdf(\""$i"_1.5_dgn_dotplot.pdf\")
+	dotplot("$i"_1.5_dgn)
+	dev.off()
+
+	# find enriched Biological Process GO terms and make a dot plot from absolute fold difference lists
+
+	"$i"_1.5_BP <- enrichGO(gene          = "$i"_list,
+                universe      = names("$i"),
+                OrgDb         = org.Hs.eg.db,
+                ont           = \"BP\",
+                pAdjustMethod = \"BH\",
+                pvalueCutoff  = 0.01,
+                qvalueCutoff  = 0.05,
+                readable      = TRUE)
+	head("$i"_1.5_BP)
+	pdf(\""$i"_1.5_BP_dotplot.pdf\")
+	dotplot("$i"_1.5_BP)
+	dev.off()
+	
+	# Divide lists by increased and decreased log2fold changes to better understand the types of changes
+	"$i"_uplist <- names("$i")[("$i") > 1.5]
+	head("$i"_uplist)
+	write.csv("$i"_uplist, file=\""$i"_uplist.csv\")
+
+	# Find enriched disease ontology terms for each of the up 1.5-fold ("$i")
+	"$i"_up1.5_DO <- enrichDO(gene          = "$i"_uplist,
+                             ont           = \"DO\",
+                             pvalueCutoff  = 0.05,
+                             pAdjustMethod = \"BH\",
+                             universe      = names("$i"),
+                             minGSSize     = 5,
+                             maxGSSize     = 1000,
+                             qvalueCutoff  = 0.05,
+                             readable      = FALSE)
+	"$i"_up1.5_DO <- setReadable("$i"_1.5_DO, 'org.Hs.eg.db')
+
+	head("$i"_up1.5_DO)
+
+	# find enriched disease-associated gene terms from up 1.5-fold ("$i")
+
+	"$i"_up1.5_dgn <- enrichDGN("$i"_uplist)
+	head("$i"_up1.5_dgn)
+
+	# make a dotplot of enriched DO and disease-associated gene terms from up 1.5-fold ("$i")
+	pdf(\""$i"_1.5up_DO_dotplot.pdf\")
+	dotplot("$i"_up1.5_DO)
+	dev.off()
+	pdf(\""$i"_1.5up_dgn_dotplot.pdf\")
+	dotplot("$i"_up1.5_dgn)
+	dev.off()
+
+	# find enriched Biological Process GO terms and make a dot plot from up 1.5-fold ("$i")
+
+	"$i"_up1.5_BP <- enrichGO(gene          = "$i"_uplist,
+                universe      = names("$i"),
+                OrgDb         = org.Hs.eg.db,
+                ont           = \"BP\",
+                pAdjustMethod = \"BH\",
+                pvalueCutoff  = 0.01,
+                qvalueCutoff  = 0.05,
+                readable      = TRUE)
+	head("$i"_up1.5_BP)
+	pdf(\""$i"_1.5up_BP_dotplot.pdf\")
+	dotplot("$i"_up1.5_BP)
+	dev.off()
+
+	# testing out gene set enrichment analysis on the whole list (has to be an ordered vector)
+	"$i"_ordered <- sort("$i", decreasing=TRUE)
+	head ("$i"_ordered)
+
+	"$i"_gse <- gseGO(geneList     = "$i"_ordered,
+              OrgDb        = org.Hs.eg.db,
+              ont          = \"BP\",
+              nPerm        = 1000,
+              minGSSize    = 100,
+              maxGSSize    = 1000,
+              pvalueCutoff = 0.05,
+              verbose      = FALSE)
+	head("$i"_gse)
+	pdf(\""$i"_1.5up_gse_dotplot.pdf\")
+	dotplot("$i"_gse)
+	dev.off()" >> clusterProfiler_scripts.r
+done
+
+# slurm script CF_clusterProfiler.slurm
+
+#!/bin/bash
+#SBATCH --job-name=CF_clusterProfiler
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -c 4
+#SBATCH --partition=general
+#SBATCH --mail-type=BEGIN,END
+#SBATCH --mail-user=awilderman@uchc.edu
+#SBATCH -o CF_clusterProfiler_%j.out
+#SBATCH -e CF_clusterProfiler_%j.err
+
+source ~/.bashrc
+cd /home/CAM/awilderman/ANALYSIS/RNA-seq/2017-10-24_human_cf/combined_data/tophat_pipeline/R_data/2018-03-05_R_analysis/clusterProfiler
+module load R/3.4.1
+Rscript --no-save --no-restore --verbose clusterProfiler_scripts.r > 2018-03-14_ClusterProfiler.Rout 2>&1
+# which creates the screen output and any errors on the outfile
+
+#####
+Making timecourse dotplot (scratchpad)
+CS13 <- read.csv("CS13vsCS17_uplist.csv", header=TRUE)
+CS13$x <- as.character(CS13$x)
+CS14 <- read.csv("CS14vsCS13_uplist.csv", header=TRUE)
+CS14$x <- as.character(CS14$x)
+CS15 <- read.csv("CS15vsCS14_uplist.csv", header=TRUE)
+CS15$x <- as.character(CS15$x)
+CS17 <- read.csv("CS17vsCS15_uplist.csv", header=TRUE)
+CS17$x <- as.character(CS17$x)
+timeseries=list(CS13=c(CS13$x), CS14=c(CS14$x), CS15=c(CS15$x), CS17=c(CS17$x))
+
+CS <- compareCluster(geneCluster = timeseries, fun = "enrichKEGG")
+dotplot(CS)
+
+CSdo <- compareCluster(geneCluster = timeseries, fun = "enrichDO")
+dotplot(CSdo)
+
+CSdgn <- compareCluster(geneCluster = timeseries, fun = "enrichDGN")
+dotplot(CSdgn)
+
+CSgo <- compareCluster(geneCluster = timeseries, fun = "enrichGO", OrgDb= "org.Hs.eg.db", ont = "BP")
+dotplot(CSgo)
+
+
+
+
+#########GSEA
+
+# Tried it first with the online tool
+# created a sorted file
+R
+
+setwd("/home/CAM/awilderman/ANALYSIS/RNA-seq/2017-10-24_human_cf/combined_data/tophat_pipeline/R_data/old_R_analysis")
+CS17v13_file_forGSEA <- ("sva_CF_Tissue-CS17_v_CS13_diffexpr-results.csv")
+CS17v13_forGSEA <- read.csv(CS17v13_file_forGSEA, header=TRUE, row.names=NULL, check.names=FALSE)
+CS17v13_forGSEA <- CS17v13_forGSEA[order(-CS17v13_forGSEA$stat),]
+CS17v13_forGSEA <- transform(CS17v13_forGSEA, Gene=reorder(Gene, stat) )
+write.table(CS17v13_forGSEA, "stat_sorted_CS17v13_forGSEA.txt", sep="\t")
+
+
+cat stat_sorted_CS17v13_forGSEA.txt | awk '{print $3}' | sed 's/"//g' > stat_sorted_CS17v13_forGSEA_noquote.txt

@@ -1,0 +1,115 @@
+#####################
+#Beginning part already done, all files loaded, wrote new slurm script, but won't run because no numpy
+#####################
+# QC check with RSeQC
+# Load what is needed:
+# GTF>bed of Gencode v.10
+cd /home/CAM/awilderman/TOOLS/bcbio/genomes/Hsapiens/hg19/annotation
+cp /home/CAM/awilderman/TOOLS/bcbio/genomes/Hsapiens/hg19/annotation/gencode.v10.annotation.gtf /home/CAM/awilderman/GENOME/hg19/annotation/
+cd /home/CAM/awilderman/GENOME/hg19/annotation/
+gtf2bed < gencode.v10.annotation.gtf > gencode.v10.annotation.bed
+# needed to be bed12 format
+# try perl script from Erik Aronesty (https://github.com/ExpressionAnalysis/ea-utils/blob/master/clipper/gtf2bed)
+
+~/TOOLS/bcbio/anaconda/bin/perl gtf2bed.pl /home/CAM/awilderman/GENOME/hg19/annotation/gencode.v10.annotation.gtf > /home/CAM/awilderman/GENOME/hg19/annotation/gencode.v10.annotation.bed
+# Seems to have worked
+
+# rRNA.bed
+cd /home/CAM/awilderman/GENOME/hg19/annotation/
+wget http://sourceforge.net/projects/rseqc/files/BED/Human_Homo_sapiens/hg19_rRNA.bed.gz
+gunzip hg19_rRNA.bed.gz
+
+# fetchChromSizes
+# followed instruction, can't get this to work
+
+
+
+# Using data with trim q=15, new analysis directory within tophat_pipeline (/home/CAM/awilderman/ANALYSIS/RNA-seq/2017-10-24_human_cf/combined_data/tophat_pipeline/RSeQC_Analysis)
+# genebody_coverage (uses sorted, indexed bams, will generate a file list for input first, has absolute path)
+ls $PWD/*fwd.bam > ./RSeQC_Analysis/bam_list.txt
+ls $PWD/*rev.bam >> ./RSeQC_Analysis/bam_list.txt
+
+#### Revisit- none of this worked, no numpy on cluster
+# RSeQC.slurm
+
+#!/bin/bash
+#SBATCH --job-name=CF_RSeQC
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -c 12
+#SBATCH --partition=general
+#SBATCH --mail-type=BEGIN,END
+#SBATCH --mail-user=awilderman@uchc.edu
+#SBATCH -o CF_RSeQC_%j.out
+#SBATCH -e CF_RSeQC_%j.err
+module load python/2.7.11
+source /home/CAM/awilderman/.bashrc
+cd /home/CAM/awilderman/ANALYSIS/RNA-seq/2017-10-24_human_cf/combined_data/tophat_pipeline/RSeQC_Analysis
+
+# genebody coverage 
+
+geneBody_coverage.py -r /home/CAM/awilderman/GENOME/hg19/annotation/gencode.v10.annotation.bed -i /home/CAM/awilderman/ANALYSIS/RNA-seq/2017-10-24_human_cf/combined_data/tophat_pipeline/RSeQC_Analysis/bam_list.txt  -o genebody_coverage_all 
+
+
+# read_distribution
+
+# Some important notes from the documentation
+#	Provided a BAM/SAM file and reference gene model, this module will calculate how mapped reads were distributed over genome feature (like CDS exon, 5’UTR exon, 3’ UTR exon, Intron, Intergenic regions). When genome features are overlapped (e.g. a region could be annotated as both exon and intron by two different transcripts) , they are prioritize as: CDS exons > UTR exons > Introns > Intergenic regions, for example, if a read was mapped to both CDS exon and intron, it will be assigned to CDS exons.
+#	“Total Reads”: This does NOT include those QC fail,duplicate and non-primary hit reads
+#	“Total Tags”: reads spliced once will be counted as 2 tags, reads spliced twice will be counted as 3 tags, etc. And because of this, “Total Tags” >= “Total Reads”
+#	“Total Assigned Tags”: number of tags that can be unambiguously assigned the 10 groups (see below table).
+#	Tags assigned to “TSS_up_1kb” were also assigned to “TSS_up_5kb” and “TSS_up_10kb”, tags assigned to “TSS_up_5kb” were also assigned to “TSS_up_10kb”. Therefore, “Total Assigned Tags” = CDS_Exons + 5’UTR_Exons + 3’UTR_Exons + Introns + TSS_up_10kb + TES_down_10kb.
+#	When assign tags to genome features, each tag is represented by its middle point.
+#	RSeQC cannot assign those reads that:
+#		hit to intergenic regions that beyond region starting from TSS upstream 10Kb to TES downstream 10Kb.
+#		hit to regions covered by both 5’UTR and 3’ UTR. This is possible when two head-to-tail transcripts are overlapped in UTR regions.
+#		hit to regions covered by both TSS upstream 10Kb and TES downstream 10Kb.
+
+# edit the list bam_list.txt to have a second column with just the basic name of the sample
+
+# For a bigger file:
+sed -e 's|/home/CAM/awilderman/ANALYSIS/RNA-seq/2017-10-24_human_cf/combined_data/tophat_pipeline/RSeQC_Analysis/||g' -e 's|.bam||g' bam_list.txt | paste bam_list.txt - > bam_list2.txt
+
+/home/CAM/awilderman/ANALYSIS/RNA-seq/2017-10-24_human_cf/combined_data/tophat_pipeline/RSeQC_Analysis
+
+
+cat bam_list2.txt | awk '{print "read_distribution.py  -i "$1" -r /home/CAM/awilderman/GENOME/hg19/annotation/gencode.v10.annotation.bed > "$2"_read_distribution_all.txt"}' >> read_distribution_all.sh
+chmod +x read_distribution_all.sh
+./read_distribution_all.sh 
+
+
+# split_bam
+# use ribosomal RNA file as reference to determine percent of sequences originating from ribosomal RNA
+
+cd /home/CAM/awilderman/ANALYSIS/RNA-seq/2017-10-24_human_cf/combined_data/tophat_pipeline/RSeQC_Analysis
+
+cat bam_list2.txt | awk '{print "split_bam.py -i "$1"  -r /home/CAM/awilderman/GENOME/hg19/annotation/hg19_rRNA.bed -o "$2}' >> split_bam_all.sh
+chmod +x split_bam_all.sh
+./split_bam_all.sh
+
+# The resulting files will tell you different things:
+#	XXX.in.bam: reads that are mapped to exon regions of the gene list (or reads consumed by gene list).
+#	XXX.ex.bam: reads that cannot be mapped the exon regions of the original gene list.
+#	XXX.junk.bam: qcfailed reads or unmapped reads.
+
+# How to get and use this information: 
+
+cd /home/CAM/awilderman/ANALYSIS/RNA-seq/2017-10-24_human_cf/combined_data/tophat_pipeline/RSeQC_Analysis
+cat bam_list2.txt | awk '{print "echo \$(samtools view "$2".in.bam | wc -l) \$(samtools view "$2".ex.bam | wc -l) > "$2".stats"}' >> make_Rrna_stat.sh
+chmod +x make_Rrna_stat.sh
+./make_Rrna_stat.sh
+
+ls *.stats > stat_list.txt
+echo "file_name #.in #.ex #.in/#.ex\"" > bam_split_stats.txt
+for n in $(cat stat_list.txt) ; do echo "cat $n | awk '{print \"$n \"\$1\"\\t\"\$2\"\\t\"\$1/\$2}'" ; done > make_bam_split_stats.sh
+chmod +x *.sh
+./make_bam_split_stats.sh >> bam_split_stats.txt
+
+cat bam_split_stats.txt | awk '{$4=$4*100;print}' bam_split_stats.txt > rRNA_percent.txt
+# if it changes the original file, alter column title to %rRNA
+sed -i -e '1!b;s|0|%rRNA|' rRNA_percent.txt
+ 
+# inner_distance
+# FPKM_counts
+# junction_annotation
+# junction_saturation
